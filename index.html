@@ -85,7 +85,7 @@
 <div id="hud">
   <div id="title">a low-poly sea</div>
 </div>
-<div id="hint">drag to look · WASD to move · space/ctrl for up/down · shift to speed up</div>
+<div id="hint">drag to look · WASD to move · space/ctrl for up/down · shift to speed up · control the sun below</div>
 <div id="controls">
   <div class="ctrl">
     <label><span>swell</span><span id="swellVal">1.0</span></label>
@@ -99,13 +99,29 @@
     <label><span>speed</span><span id="speedVal">1.0</span></label>
     <input id="speed" type="range" min="0" max="3" step="0.05" value="1.0">
   </div>
+  <div class="ctrl">
+    <label><span>sun time</span><span id="sunTimeVal">14:00</span></label>
+    <input id="sunTime" type="range" min="0" max="24" step="0.05" value="14">
+  </div>
+  <div class="ctrl">
+    <label><span>sun height</span><span id="sunHeightVal">1.00</span></label>
+    <input id="sunHeight" type="range" min="0.15" max="2.5" step="0.05" value="1">
+  </div>
+  <div class="ctrl">
+    <label><span>sun intensity</span><span id="sunIntensityVal">1.10</span></label>
+    <input id="sunIntensity" type="range" min="0" max="2.5" step="0.05" value="1.1">
+  </div>
+  <div class="ctrl">
+    <label><span>cycle speed</span><span id="cycleSpeedVal">0.00</span></label>
+    <input id="cycleSpeed" type="range" min="0" max="0.25" step="0.005" value="0">
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
   var scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x061421, 0.012);
+  scene.fog = new THREE.FogExp2(0x061421, 0.006);
 
   var camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
   camera.position.set(0, 32, 95);
@@ -115,12 +131,19 @@
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.getElementById('app').appendChild(renderer.domElement);
 
-  // Lights
-  scene.add(new THREE.AmbientLight(0x3a5570, 0.9));
-  var moon = new THREE.DirectionalLight(0xbfe3ff, 1.1);
-  moon.position.set(-60, 80, -40);
+  // Dynamic sun + moon lighting
+  var ambient = new THREE.AmbientLight(0x3a5570, 0.9);
+  scene.add(ambient);
+
+  var sun = new THREE.DirectionalLight(0xfff0c2, 1.1);
+  sun.position.set(120, 140, 40);
+  scene.add(sun);
+
+  var moon = new THREE.DirectionalLight(0xbfe3ff, 0.25);
+  moon.position.set(-120, 90, -80);
   scene.add(moon);
-  var warm = new THREE.DirectionalLight(0xff9d6c, 0.35);
+
+  var warm = new THREE.DirectionalLight(0xff9d6c, 0.22);
   warm.position.set(80, 20, 60);
   scene.add(warm);
 
@@ -129,14 +152,48 @@
   var skyMat = new THREE.MeshBasicMaterial({color:0x0a1a2b, side:THREE.BackSide, fog:false});
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // Low-poly moon disc
+  // Faceted low-poly moon.
+  var moonGroup = new THREE.Group();
   var moonMesh = new THREE.Mesh(
-    new THREE.CircleGeometry(30, 24),
-    new THREE.MeshBasicMaterial({color:0xf3f2e9, fog:false})
+    new THREE.IcosahedronGeometry(24, 1),
+    new THREE.MeshLambertMaterial({
+      color:0xe9e6d7,
+      flatShading:true,
+      fog:false
+    })
   );
-  moonMesh.position.set(-260, 160, -420);
-  moonMesh.lookAt(camera.position);
-  scene.add(moonMesh);
+  moonGroup.add(moonMesh);
+
+  // Small dark faceted craters to give the moon a low-poly design.
+  var craterMat = new THREE.MeshBasicMaterial({color:0xb7b29f, fog:false});
+  var moonCrater1 = new THREE.Mesh(new THREE.IcosahedronGeometry(5.5, 1), craterMat);
+  moonCrater1.position.set(-16, 7, 16);
+  moonCrater1.scale.set(1, 0.55, 0.32);
+  moonGroup.add(moonCrater1);
+
+  var moonCrater2 = new THREE.Mesh(new THREE.IcosahedronGeometry(3.5, 1), craterMat);
+  moonCrater2.position.set(10, -6, 17);
+  moonCrater2.scale.set(1.15, 0.7, 0.28);
+  moonGroup.add(moonCrater2);
+
+  var moonCrater3 = new THREE.Mesh(new THREE.IcosahedronGeometry(2.6, 1), craterMat);
+  moonCrater3.position.set(1, 12, 18);
+  moonCrater3.scale.set(0.9, 0.65, 0.25);
+  moonGroup.add(moonCrater3);
+
+  moonGroup.position.set(-260, 220, -420);
+  scene.add(moonGroup);
+
+  // Faceted low-poly sun.
+  var sunMesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(20, 1),
+    new THREE.MeshBasicMaterial({
+      color:0xffdf7e,
+      flatShading:true,
+      fog:false
+    })
+  );
+  scene.add(sunMesh);
 
   // Ocean plane
   var SIZE = 600, SEG = 90;
@@ -153,26 +210,97 @@
     vertexColors: true,
     flatShading: true,
     roughness: 0.55,
-    metalness: 0.05,
-    side: THREE.DoubleSide
+    metalness: 0.0,
+    emissive: 0x061c22,
+    emissiveIntensity: 0.35,
+    side: THREE.DoubleSide,
+    fog: false
   });
   var ocean = new THREE.Mesh(geo, mat);
   scene.add(ocean);
 
   var basePos = geo.attributes.position.array.slice();
 
-  var params = { swell:1.0, chop:1.0, speed:1.0 };
+  var params = {
+    swell:1.0, chop:1.0, speed:1.0,
+    sunTime:14.0, sunHeight:1.0, sunIntensity:1.1,
+    cycleSpeed:0.0
+  };
+
   function bindSlider(id, key, valId){
     var el = document.getElementById(id);
     var val = document.getElementById(valId);
     el.addEventListener('input', function(){
       params[key] = parseFloat(el.value);
-      val.textContent = params[key].toFixed(2);
+      updateSun();
     });
   }
+
   bindSlider('swell','swell','swellVal');
   bindSlider('chop','chop','chopVal');
   bindSlider('speed','speed','speedVal');
+  bindSlider('sunTime','sunTime','sunTimeVal');
+  bindSlider('sunHeight','sunHeight','sunHeightVal');
+  bindSlider('sunIntensity','sunIntensity','sunIntensityVal');
+  bindSlider('cycleSpeed','cycleSpeed','cycleSpeedVal');
+
+  function formatTime(hours){
+    var h = Math.floor(hours) % 24;
+    var m = Math.floor((hours - Math.floor(hours)) * 60);
+    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+  }
+
+  function updateSun(){
+    var time = params.sunTime;
+    var angle = (time / 24) * Math.PI * 2 - Math.PI / 2;
+
+    // Sun travels east -> overhead -> west. Height multiplier controls
+    // how high the arc appears without changing the time of day.
+    var horizontal = Math.cos(angle) * 170;
+    var height = Math.sin(angle) * 175 * params.sunHeight + 18;
+
+    sun.position.set(horizontal, height, 45);
+    sun.target.position.set(0, 0, 0);
+    if (!sun.target.parent) scene.add(sun.target);
+
+    var daylight = Math.max(0, Math.sin(angle));
+    var twilight = Math.max(0, 1 - Math.abs(Math.sin(angle)));
+
+    // Keep the sun strongly visible as the source of illumination.
+    sun.intensity = params.sunIntensity * (0.04 + 1.15 * daylight);
+
+    // Night lighting.
+    moon.intensity = 0.05 + 0.35 * (1 - daylight);
+    ambient.intensity = 0.24 + 0.72 * daylight;
+    warm.intensity = 0.08 + 0.55 * twilight;
+
+    // Warm at sunrise/sunset, pale yellow at daytime.
+    var sunColor = new THREE.Color();
+    if (daylight < 0.28) {
+      sunColor.setHSL(0.075, 0.78, 0.68);
+    } else {
+      sunColor.setHSL(0.13, 0.32, 0.92);
+    }
+    sun.color.copy(sunColor);
+
+    // Visible sun follows the light source.
+    sunMesh.position.copy(sun.position).multiplyScalar(2.35);
+    sunMesh.lookAt(camera.position);
+
+    // Moon sits roughly opposite the sun.
+    moonGroup.position.set(-horizontal * 1.45, Math.max(90, -height * 0.68 + 135), -110);
+    moonGroup.lookAt(camera.position);
+
+    // Labels.
+    document.getElementById('sunTimeVal').textContent = formatTime(time);
+    document.getElementById('sunHeightVal').textContent = params.sunHeight.toFixed(2);
+    document.getElementById('sunIntensityVal').textContent = params.sunIntensity.toFixed(2);
+    document.getElementById('cycleSpeedVal').textContent = params.cycleSpeed.toFixed(3);
+  }
+
+  // Sun direction used for the wave glow.
+  var sunDir = new THREE.Vector3();
+  updateSun();
 
   function waveHeight(x, z, t){
     var swell = params.swell, chop = params.chop;
@@ -190,20 +318,75 @@
   var minH = -6, maxH = 6;
 
   function updateOcean(t){
-    for (var i=0;i<pos.count;i++){
-      var ix = i*3;
-      var x = basePos[ix], z = basePos[ix+2];
+    // The glow is calculated from the SUN'S ACTUAL POSITION.
+    // Camera position has no influence on it.
+    sunDir.copy(sun.position).normalize();
+
+    // Small offsets used to estimate the local polygon surface slope.
+    var eps = 1.2;
+    var lightColor = new THREE.Color(0xfff0b0);
+    var glowColor = new THREE.Color(0xb8fff0);
+
+    for (var i=0; i<pos.count; i++){
+      var ix = i * 3;
+      var x = basePos[ix];
+      var z = basePos[ix+2];
+
       var y = waveHeight(x, z, t);
       pos.array[ix+1] = y;
+
+      // Base low-poly ocean colour.
       var f = THREE.MathUtils.clamp((y - minH)/(maxH-minH), 0, 1);
       tmpColor.copy(colorA).lerp(colorB, f);
-      col.array[ix] = tmpColor.r;
+
+      // Calculate the actual local wave normal from the wave surface.
+      var hx = waveHeight(x + eps, z, t) - waveHeight(x - eps, z, t);
+      var hz = waveHeight(x, z + eps, t) - waveHeight(x, z - eps, t);
+
+      var nx = -hx / (2 * eps);
+      var ny = 1.0;
+      var nz = -hz / (2 * eps);
+
+      var len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      nx /= len;
+      ny /= len;
+      nz /= len;
+
+      // How directly this polygon faces the sun.
+      // 0 = facing away, 1 = facing directly toward the sun.
+      var sunDot = Math.max(0, nx*sunDir.x + ny*sunDir.y + nz*sunDir.z);
+
+      // Sharpen the highlight so it creates a visible sun-reflection band.
+      var directionalGlow = Math.pow(sunDot, 5.0);
+
+      // Higher wave faces catch a little more of the sunlight.
+      var crestBoost = 0.35 + 0.65 * f;
+
+      // Strongly directional sunlight. No camera-distance term.
+      var glowAmount = directionalGlow * crestBoost * params.sunIntensity;
+
+      // Add warm sunlight first.
+      var warmAmount = Math.min(1, glowAmount * 0.75);
+      tmpColor.lerp(lightColor, warmAmount * 0.42);
+
+      // Add the brighter water glow on faces aimed at the sun.
+      var aquaAmount = Math.min(1, glowAmount * 0.95);
+      tmpColor.lerp(glowColor, aquaAmount * 0.62);
+
+      col.array[ix]   = tmpColor.r;
       col.array[ix+1] = tmpColor.g;
       col.array[ix+2] = tmpColor.b;
     }
+
     pos.needsUpdate = true;
     col.needsUpdate = true;
     geo.computeVertexNormals();
+
+    // A small global emission keeps distant ocean polygons from becoming
+    // dark due to ordinary scene lighting. The directional highlight above
+    // is what determines WHERE the glow appears.
+    var daylight = Math.max(0, sunDir.y);
+    mat.emissiveIntensity = 0.16 + 0.34 * daylight * params.sunIntensity;
   }
 
   // Free-fly camera: drag/touch to look, WASD/arrows to move, Q/E or Space/Shift for up/down
@@ -248,12 +431,19 @@
     var dt = clock.getDelta();
     var t = clock.elapsedTime * params.speed;
 
+    // cycleSpeed is hours of simulated time per second.
+    if (params.cycleSpeed > 0) {
+      params.sunTime = (params.sunTime + dt * params.cycleSpeed) % 24;
+      document.getElementById('sunTime').value = params.sunTime;
+    }
+    updateSun();
+
     if (autoDrift) yaw += dt * 0.03;
 
     forward.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch));
     right.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
 
-    var dist = moveSpeed * dt * ((keys['ShiftLeft']||keys['ShiftRight']) ? 2.2 : 1);
+    var dist = moveSpeed * dt * ((keys['ShiftLeft']||keys['ShiftRight']) ? 4.5 : 1);
     if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
     if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
     if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
