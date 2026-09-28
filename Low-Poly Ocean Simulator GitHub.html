@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Low-Poly Ocean</title>
+<style>
+  :root{
+    --bg-top:#0a1a2b;
+    --bg-bottom:#04101c;
+    --fg:#dceaf5;
+    --accent:#7fd8d0;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    background:linear-gradient(180deg,var(--bg-top),var(--bg-bottom));
+    overflow:hidden;
+    font-family:Georgia, 'Times New Roman', serif;
+    color:var(--fg);
+  }
+  #app{position:fixed;inset:0;}
+  canvas{display:block;width:100%;height:100%;}
+  #hud{
+    position:fixed;
+    left:0; right:0; top:0;
+    padding:calc(28px + env(safe-area-inset-top,0px)) 32px 0;
+    pointer-events:none;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+  }
+  #title{
+    font-size:22px;
+    letter-spacing:0.02em;
+    font-style:italic;
+    color:var(--fg);
+    text-shadow:0 2px 12px rgba(0,0,0,0.5);
+  }
+  #controls{
+    position:fixed;
+    right:24px;
+    bottom:calc(24px + env(safe-area-inset-bottom,0px));
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    pointer-events:auto;
+  }
+  .ctrl{
+    background:rgba(6,20,32,0.55);
+    border:1px solid rgba(127,216,208,0.35);
+    border-radius:3px;
+    padding:10px 14px;
+    min-width:190px;
+    backdrop-filter:blur(6px);
+  }
+  .ctrl label{
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+    color:var(--accent);
+    margin-bottom:4px;
+  }
+  .ctrl input[type=range]{
+    width:100%;
+    accent-color:var(--accent);
+  }
+  #hint{
+    position:fixed;
+    left:32px;
+    bottom:calc(24px + env(safe-area-inset-bottom,0px));
+    font-size:12px;
+    color:rgba(220,234,245,0.55);
+    pointer-events:none;
+  }
+  @media (max-width:640px){
+    #title{font-size:17px}
+    .ctrl{min-width:150px;padding:8px 10px;}
+    #hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud">
+  <div id="title">a low-poly sea</div>
+</div>
+<div id="hint">drag to look · WASD to move · space/ctrl for up/down · shift to speed up</div>
+<div id="controls">
+  <div class="ctrl">
+    <label><span>swell</span><span id="swellVal">1.0</span></label>
+    <input id="swell" type="range" min="0.2" max="2.5" step="0.05" value="1.0">
+  </div>
+  <div class="ctrl">
+    <label><span>chop</span><span id="chopVal">1.0</span></label>
+    <input id="chop" type="range" min="0" max="2.5" step="0.05" value="1.0">
+  </div>
+  <div class="ctrl">
+    <label><span>speed</span><span id="speedVal">1.0</span></label>
+    <input id="speed" type="range" min="0" max="3" step="0.05" value="1.0">
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x061421, 0.012);
+
+  var camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
+  camera.position.set(0, 32, 95);
+
+  var renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.getElementById('app').appendChild(renderer.domElement);
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0x3a5570, 0.9));
+  var moon = new THREE.DirectionalLight(0xbfe3ff, 1.1);
+  moon.position.set(-60, 80, -40);
+  scene.add(moon);
+  var warm = new THREE.DirectionalLight(0xff9d6c, 0.35);
+  warm.position.set(80, 20, 60);
+  scene.add(warm);
+
+  // Sky gradient dome (cheap: large sphere, back side, vertex colors)
+  var skyGeo = new THREE.SphereGeometry(900, 16, 12);
+  var skyMat = new THREE.MeshBasicMaterial({color:0x0a1a2b, side:THREE.BackSide, fog:false});
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+  // Low-poly moon disc
+  var moonMesh = new THREE.Mesh(
+    new THREE.CircleGeometry(30, 24),
+    new THREE.MeshBasicMaterial({color:0xf3f2e9, fog:false})
+  );
+  moonMesh.position.set(-260, 160, -420);
+  moonMesh.lookAt(camera.position);
+  scene.add(moonMesh);
+
+  // Ocean plane
+  var SIZE = 600, SEG = 90;
+  var geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+  geo.rotateX(-Math.PI/2);
+
+  var colorA = new THREE.Color(0x0f4c66); // trough
+  var colorB = new THREE.Color(0x3fb8c4); // crest
+  var colors = [];
+  for (var i=0;i<geo.attributes.position.count;i++) colors.push(1,1,1);
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+  var mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    flatShading: true,
+    roughness: 0.55,
+    metalness: 0.05,
+    side: THREE.DoubleSide
+  });
+  var ocean = new THREE.Mesh(geo, mat);
+  scene.add(ocean);
+
+  var basePos = geo.attributes.position.array.slice();
+
+  var params = { swell:1.0, chop:1.0, speed:1.0 };
+  function bindSlider(id, key, valId){
+    var el = document.getElementById(id);
+    var val = document.getElementById(valId);
+    el.addEventListener('input', function(){
+      params[key] = parseFloat(el.value);
+      val.textContent = params[key].toFixed(2);
+    });
+  }
+  bindSlider('swell','swell','swellVal');
+  bindSlider('chop','chop','chopVal');
+  bindSlider('speed','speed','speedVal');
+
+  function waveHeight(x, z, t){
+    var swell = params.swell, chop = params.chop;
+    var h = 0;
+    h += Math.sin(x*0.035 + t*0.6) * 3.2 * swell;
+    h += Math.cos(z*0.045 - t*0.5) * 2.4 * swell;
+    h += Math.sin((x+z)*0.08 + t*1.3) * 1.1 * chop;
+    h += Math.sin(x*0.15 - t*1.9) * Math.cos(z*0.12 + t*1.1) * 0.7 * chop;
+    return h;
+  }
+
+  var pos = geo.attributes.position;
+  var col = geo.attributes.color;
+  var tmpColor = new THREE.Color();
+  var minH = -6, maxH = 6;
+
+  function updateOcean(t){
+    for (var i=0;i<pos.count;i++){
+      var ix = i*3;
+      var x = basePos[ix], z = basePos[ix+2];
+      var y = waveHeight(x, z, t);
+      pos.array[ix+1] = y;
+      var f = THREE.MathUtils.clamp((y - minH)/(maxH-minH), 0, 1);
+      tmpColor.copy(colorA).lerp(colorB, f);
+      col.array[ix] = tmpColor.r;
+      col.array[ix+1] = tmpColor.g;
+      col.array[ix+2] = tmpColor.b;
+    }
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    geo.computeVertexNormals();
+  }
+
+  // Free-fly camera: drag/touch to look, WASD/arrows to move, Q/E or Space/Shift for up/down
+  var yaw = Math.PI, pitch = -0.22;
+  var dragging = false, lastX=0, lastY=0, autoDrift = true;
+  var dom = renderer.domElement;
+  dom.style.cursor = 'grab';
+  dom.style.touchAction = 'none';
+
+  function pointerDown(x,y){ dragging=true; autoDrift=false; lastX=x; lastY=y; dom.style.cursor='grabbing'; }
+  function pointerMove(x,y){
+    if(!dragging) return;
+    yaw -= (x-lastX) * 0.004;
+    pitch -= (y-lastY) * 0.003;
+    pitch = Math.max(-1.3, Math.min(1.3, pitch));
+    lastX=x; lastY=y;
+  }
+  function pointerUp(){ dragging=false; dom.style.cursor='grab'; }
+
+  dom.addEventListener('mousedown', function(e){ pointerDown(e.clientX,e.clientY); });
+  window.addEventListener('mousemove', function(e){ pointerMove(e.clientX,e.clientY); });
+  window.addEventListener('mouseup', pointerUp);
+  dom.addEventListener('touchstart', function(e){ var t=e.touches[0]; pointerDown(t.clientX,t.clientY); }, {passive:true});
+  window.addEventListener('touchmove', function(e){ var t=e.touches[0]; pointerMove(t.clientX,t.clientY); }, {passive:true});
+  window.addEventListener('touchend', pointerUp);
+
+  var keys = {};
+  window.addEventListener('keydown', function(e){
+    keys[e.code] = true;
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) !== -1) e.preventDefault();
+    autoDrift = false;
+  }, {passive:false});
+  window.addEventListener('keyup', function(e){ keys[e.code] = false; });
+
+  var moveSpeed = 26; // units per second
+  var forward = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0,1,0);
+
+  var clock = new THREE.Clock();
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var dt = clock.getDelta();
+    var t = clock.elapsedTime * params.speed;
+
+    if (autoDrift) yaw += dt * 0.03;
+
+    forward.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch));
+    right.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
+
+    var dist = moveSpeed * dt * ((keys['ShiftLeft']||keys['ShiftRight']) ? 2.2 : 1);
+    if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
+    if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
+    if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
+    if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right, -dist);
+    if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
+    if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
+
+    camera.position.y = Math.max(camera.position.y, -8);
+
+    var lookTarget = camera.position.clone().add(forward);
+    camera.lookAt(lookTarget);
+
+    updateOcean(t);
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', function(){
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+})();
+</script>
+</body>
+</html>
