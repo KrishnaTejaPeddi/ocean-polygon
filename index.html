@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -85,7 +85,7 @@
 <div id="hud">
   <div id="title">a low-poly sea</div>
 </div>
-<div id="hint">drag to look · WASD to move · space/ctrl for up/down · shift to speed up · control the sun below</div>
+<div id="hint">drag to look · WASD to move · shift to run · F to fly · control the sun below</div>
 <div id="controls">
   <div class="ctrl">
     <label><span>swell</span><span id="swellVal">1.0</span></label>
@@ -115,6 +115,10 @@
     <label><span>cycle speed</span><span id="cycleSpeedVal">0.00</span></label>
     <input id="cycleSpeed" type="range" min="0" max="0.25" step="0.005" value="0">
   </div>
+  <div class="ctrl">
+    <label><span>wind dir</span><span id="windDirVal">30°</span></label>
+    <input id="windDir" type="range" min="0" max="359" step="1" value="30">
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -124,7 +128,8 @@
   scene.fog = new THREE.FogExp2(0x061421, 0.006);
 
   var camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 2000);
-  camera.position.set(0, 32, 95);
+  // Start standing on the beach at the water's edge, facing out over the ocean.
+  camera.position.set(0, 12, 315);
 
   var renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
@@ -219,13 +224,229 @@
   var ocean = new THREE.Mesh(geo, mat);
   scene.add(ocean);
 
+  // Low-poly island: sandy beach, grassy hill, rocky peak, and a few palms.
+  var islandGroup = new THREE.Group();
+  function makeGrassTexture(){
+    var size = 128;
+    var canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#4f7a3d';
+    ctx.fillRect(0, 0, size, size);
+    for (var i = 0; i < 950; i++){
+      var gx = Math.random() * size, gy = Math.random() * size;
+      var shade = 0.72 + Math.random() * 0.55;
+      var r = Math.floor(70 * shade), g = Math.floor(118 * shade), b = Math.floor(58 * shade);
+      ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+      var w = 1 + Math.random() * 1.6, h = 3 + Math.random() * 5;
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.rotate((Math.random() - 0.5) * 0.7);
+      ctx.fillRect(-w / 2, -h, w, h);
+      ctx.restore();
+    }
+    var tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(48, 48);
+    return tex;
+  }
+  var grassTexture = makeGrassTexture();
+
+  var sandMat = new THREE.MeshStandardMaterial({color:0xe0c98f, flatShading:true, roughness:0.9, fog:false});
+  var grassMat = new THREE.MeshStandardMaterial({color:0xffffff, map:grassTexture, flatShading:true, roughness:0.85, fog:false});
+  var rockMat = new THREE.MeshStandardMaterial({color:0x8a8578, flatShading:true, roughness:0.95, fog:false});
+
+  var beachH = 7, hillH = 30;
+  var beach = new THREE.Mesh(new THREE.CylinderGeometry(26, 34, beachH, 7, 1), sandMat);
+  beach.position.y = beachH / 2;
+  islandGroup.add(beach);
+
+  var hill = new THREE.Mesh(new THREE.CylinderGeometry(3, 24, hillH, 7, 2), grassMat);
+  hill.position.y = beachH + hillH / 2;
+  islandGroup.add(hill);
+
+  var peak = new THREE.Mesh(new THREE.IcosahedronGeometry(4.5, 0), rockMat);
+  peak.position.y = beachH + hillH + 1.5;
+  islandGroup.add(peak);
+
+  function makePalm(x, z, scale){
+    var group = new THREE.Group();
+    var trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.6, 8, 5),
+      new THREE.MeshStandardMaterial({color:0x6b4a2f, flatShading:true, fog:false})
+    );
+    trunk.position.y = 4;
+    trunk.rotation.z = 0.15;
+    group.add(trunk);
+    var frondMat = new THREE.MeshStandardMaterial({color:0x3f8f4a, flatShading:true, side:THREE.DoubleSide, fog:false});
+    for (var i = 0; i < 5; i++){
+      var frond = new THREE.Mesh(new THREE.ConeGeometry(1.2, 4.5, 4), frondMat);
+      frond.position.set(0, 8, 0);
+      frond.rotation.z = Math.PI / 2.2;
+      frond.rotation.y = i * (Math.PI * 2 / 5);
+      group.add(frond);
+    }
+    group.position.set(x, beachH, z);
+    group.scale.setScalar(scale);
+    return group;
+  }
+  islandGroup.add(makePalm(14, 10, 1.0));
+  islandGroup.add(makePalm(-16, 6, 0.85));
+  islandGroup.add(makePalm(5, -18, 0.9));
+
+  islandGroup.position.set(-110, 0, -90);
+  scene.add(islandGroup);
+
+  // Land surrounding the ocean on every side: a square frame with a
+  // square hole over the water, sandy near the shore and grassy beyond it.
+  function makeShoreFrame(innerHalf, outerHalf, thickness, material, baseY){
+    var shape = new THREE.Shape();
+    shape.moveTo(-outerHalf, -outerHalf);
+    shape.lineTo(outerHalf, -outerHalf);
+    shape.lineTo(outerHalf, outerHalf);
+    shape.lineTo(-outerHalf, outerHalf);
+    shape.lineTo(-outerHalf, -outerHalf);
+    var hole = new THREE.Path();
+    hole.moveTo(-innerHalf, -innerHalf);
+    hole.lineTo(-innerHalf, innerHalf);
+    hole.lineTo(innerHalf, innerHalf);
+    hole.lineTo(innerHalf, -innerHalf);
+    hole.lineTo(-innerHalf, -innerHalf);
+    shape.holes.push(hole);
+    var extrudeGeo = new THREE.ExtrudeGeometry(shape, {depth: thickness, bevelEnabled: false, curveSegments: 1});
+    extrudeGeo.rotateX(-Math.PI / 2);
+    var mesh = new THREE.Mesh(extrudeGeo, material);
+    mesh.position.y = baseY;
+    return mesh;
+  }
+
+  var shoreSand = makeShoreFrame(280, 350, 3, sandMat, -1.2);
+  scene.add(shoreSand);
+  var shoreGrass = makeShoreFrame(344, 650, 6, grassMat, 0.5);
+  scene.add(shoreGrass);
+
+  // A dense wall of low-poly mountains following the square edge of the
+  // land (corners included), tall and overlapping enough that the edge
+  // of the map is never visible past them.
+  function squarePerimeterPoint(t, half){
+    var side = ((t % 1) + 1) % 1 * 4;
+    var i = Math.floor(side), f = side - i;
+    if (i === 0) return {x: -half + f * 2 * half, z: -half};
+    if (i === 1) return {x: half, z: -half + f * 2 * half};
+    if (i === 2) return {x: half - f * 2 * half, z: half};
+    return {x: -half, z: half - f * 2 * half};
+  }
+  var mountainGroup = new THREE.Group();
+  var mCount = 34, mHalf = 600;
+  for (var mi = 0; mi < mCount; mi++){
+    var p = squarePerimeterPoint(mi / mCount + (Math.random()-0.5)*0.01, mHalf);
+    var jitter = (Math.random() - 0.3) * 45;
+    var dirLen = Math.hypot(p.x, p.z) || 1;
+    var px = p.x + (p.x / dirLen) * jitter;
+    var pz = p.z + (p.z / dirLen) * jitter;
+    var mh = 90 + Math.random() * 130;
+    var mr = 70 + Math.random() * 60;
+    var peakMesh = new THREE.Mesh(new THREE.ConeGeometry(mr, mh, 6), Math.random() > 0.4 ? grassMat : rockMat);
+    peakMesh.position.set(px, mh / 2 - 2, pz);
+    peakMesh.rotation.y = Math.random() * Math.PI;
+    mountainGroup.add(peakMesh);
+  }
+  scene.add(mountainGroup);
+
   var basePos = geo.attributes.position.array.slice();
+
+  // Low-poly sailboat, bobbing on the wave surface.
+  var boat = new THREE.Group();
+  var hull = new THREE.Mesh(
+    new THREE.ConeGeometry(3.4, 10, 4),
+    new THREE.MeshStandardMaterial({color:0x8a5a3a, flatShading:true, roughness:0.8, fog:false})
+  );
+  hull.rotation.x = Math.PI / 2;
+  hull.rotation.y = Math.PI / 4;
+  hull.scale.set(1, 1, 0.55);
+  boat.add(hull);
+  var mast = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 9, 6),
+    new THREE.MeshStandardMaterial({color:0xe8e2d0, flatShading:true, fog:false})
+  );
+  mast.position.y = 4.3;
+  boat.add(mast);
+  var sail = new THREE.Mesh(
+    new THREE.ConeGeometry(3, 7.5, 3),
+    new THREE.MeshStandardMaterial({color:0xf5f1e6, flatShading:true, side:THREE.DoubleSide, fog:false})
+  );
+  sail.rotation.z = Math.PI / 2;
+  sail.rotation.y = Math.PI / 2;
+  sail.position.set(0.3, 4.5, 0);
+  boat.add(sail);
+  var boatX = 45, boatZ = -35;
+  boat.position.set(boatX, 0, boatZ);
+  scene.add(boat);
+
+  function updateBoat(t){
+    var epsB = 1.5;
+    var y = waveHeight(boatX, boatZ, t);
+    var hx = waveHeight(boatX+epsB, boatZ, t) - waveHeight(boatX-epsB, boatZ, t);
+    var hz = waveHeight(boatX, boatZ+epsB, t) - waveHeight(boatX, boatZ-epsB, t);
+    boat.position.y = y + 0.6;
+    boat.rotation.z = -hx * 0.05;
+    boat.rotation.x = hz * 0.05;
+  }
+
+  // Star field, fades in at night.
+  var starGeo = new THREE.BufferGeometry();
+  var starCount = 700;
+  var starPos = new Float32Array(starCount * 3);
+  for (var s = 0; s < starCount; s++){
+    var r = 850;
+    var theta = Math.random() * Math.PI * 2;
+    var phi = Math.random() * Math.PI * 0.5; // upper hemisphere
+    starPos[s*3]   = r * Math.sin(phi) * Math.cos(theta);
+    starPos[s*3+1] = r * Math.cos(phi);
+    starPos[s*3+2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  var starMat = new THREE.PointsMaterial({color:0xffffff, size:2.4, transparent:true, opacity:0, fog:false});
+  var stars = new THREE.Points(starGeo, starMat);
+  scene.add(stars);
 
   var params = {
     swell:1.0, chop:1.0, speed:1.0,
     sunTime:14.0, sunHeight:1.0, sunIntensity:1.1,
-    cycleSpeed:0.0
+    cycleSpeed:0.0, windDir:30
   };
+
+  var windAngle = 0;
+  function updateWind(){
+    windAngle = params.windDir * Math.PI / 180;
+    updateWaveDirections();
+    document.getElementById('windDirVal').textContent = Math.round(params.windDir) + '°';
+  }
+
+  // A handful of sine waves at different directions, wavelengths, and
+  // speeds. Each direction is an offset from the wind angle, and the
+  // frequencies/speeds are deliberately non-multiples of each other so
+  // the crests never line up into a visible repeating grid.
+  var WAVE_SET = [
+    {dirOffset: 0.00, freq: 0.021, speed: 0.55, amp: 3.0, band: 'swell'},
+    {dirOffset: 0.52, freq: 0.014, speed: -0.31, amp: 2.1, band: 'swell'},
+    {dirOffset: -0.83, freq: 0.027, speed: 0.44, amp: 1.5, band: 'swell'},
+    {dirOffset: 1.30, freq: 0.037, speed: 0.83, amp: 1.4, band: 'chop'},
+    {dirOffset: -0.41, freq: 0.049, speed: -0.68, amp: 1.05, band: 'chop'},
+    {dirOffset: 2.10, freq: 0.065, speed: 1.21, amp: 0.8, band: 'chop'},
+    {dirOffset: -1.65, freq: 0.093, speed: -1.7, amp: 0.5, band: 'chop'},
+    {dirOffset: 0.95, freq: 0.118, speed: 2.3, amp: 0.32, band: 'chop'}
+  ];
+  var waveDirX = new Float64Array(WAVE_SET.length);
+  var waveDirZ = new Float64Array(WAVE_SET.length);
+  function updateWaveDirections(){
+    for (var wi = 0; wi < WAVE_SET.length; wi++){
+      var a = windAngle + WAVE_SET[wi].dirOffset;
+      waveDirX[wi] = Math.cos(a);
+      waveDirZ[wi] = Math.sin(a);
+    }
+  }
 
   function bindSlider(id, key, valId){
     var el = document.getElementById(id);
@@ -243,6 +464,10 @@
   bindSlider('sunHeight','sunHeight','sunHeightVal');
   bindSlider('sunIntensity','sunIntensity','sunIntensityVal');
   bindSlider('cycleSpeed','cycleSpeed','cycleSpeedVal');
+  document.getElementById('windDir').addEventListener('input', function(e){
+    params.windDir = parseFloat(e.target.value);
+    updateWind();
+  });
 
   function formatTime(hours){
     var h = Math.floor(hours) % 24;
@@ -254,14 +479,22 @@
     var time = params.sunTime;
     var angle = (time / 24) * Math.PI * 2 - Math.PI / 2;
 
-    // Sun travels east -> overhead -> west. Height multiplier controls
-    // how high the arc appears without changing the time of day.
-    var horizontal = Math.cos(angle) * 170;
-    var height = Math.sin(angle) * 175 * params.sunHeight + 18;
+    // Sun and moon share a single circle (centered on the world origin,
+    // at a fixed depth) and sit at exactly opposite points on it, so the
+    // moment the sun dips below the horizon on one side, the moon is
+    // rising on the other.
+    var radiusH = 170, radiusV = 175 * params.sunHeight, depth = 45;
+    var sunX = Math.cos(angle) * radiusH;
+    var sunY = Math.sin(angle) * radiusV;
 
-    sun.position.set(horizontal, height, 45);
+    sun.position.set(sunX, sunY, depth);
     sun.target.position.set(0, 0, 0);
     if (!sun.target.parent) scene.add(sun.target);
+
+    var moonX = -sunX, moonY = -sunY;
+    moon.position.set(moonX, moonY, depth);
+    moon.target.position.set(0, 0, 0);
+    if (!moon.target.parent) scene.add(moon.target);
 
     var daylight = Math.max(0, Math.sin(angle));
     var twilight = Math.max(0, 1 - Math.abs(Math.sin(angle)));
@@ -269,8 +502,8 @@
     // Keep the sun strongly visible as the source of illumination.
     sun.intensity = params.sunIntensity * (0.04 + 1.15 * daylight);
 
-    // Night lighting.
-    moon.intensity = 0.05 + 0.35 * (1 - daylight);
+    // Moon brightens as the sun's contribution fades.
+    moon.intensity = 0.05 + 0.4 * Math.max(0, -Math.sin(angle));
     ambient.intensity = 0.24 + 0.72 * daylight;
     warm.intensity = 0.08 + 0.55 * twilight;
 
@@ -283,13 +516,14 @@
     }
     sun.color.copy(sunColor);
 
-    // Visible sun follows the light source.
+    // Visible sun and moon meshes follow their light positions outward.
     sunMesh.position.copy(sun.position).multiplyScalar(2.35);
     sunMesh.lookAt(camera.position);
 
-    // Moon sits roughly opposite the sun.
-    moonGroup.position.set(-horizontal * 1.45, Math.max(90, -height * 0.68 + 135), -110);
+    moonGroup.position.copy(moon.position).multiplyScalar(2.35);
     moonGroup.lookAt(camera.position);
+
+    starMat.opacity = THREE.MathUtils.clamp(1 - daylight * 1.4, 0, 0.85);
 
     // Labels.
     document.getElementById('sunTimeVal').textContent = formatTime(time);
@@ -300,16 +534,30 @@
 
   // Sun direction used for the wave glow.
   var sunDir = new THREE.Vector3();
+  updateWind();
   updateSun();
+
+  var oceanHalf = SIZE / 2;
+  function shoreFalloff(x, z){
+    // 1.0 through the middle of the ocean, fading smoothly to 0 as the
+    // plane approaches its outer edge, so the surface settles flat and
+    // flush with the fixed-height shore around it instead of poking
+    // through or leaving a gap.
+    var d = Math.max(Math.abs(x), Math.abs(z)) / oceanHalf;
+    var t = THREE.MathUtils.clamp((d - 0.72) / 0.28, 0, 1);
+    return 1 - t * t * (3 - 2 * t);
+  }
 
   function waveHeight(x, z, t){
     var swell = params.swell, chop = params.chop;
     var h = 0;
-    h += Math.sin(x*0.035 + t*0.6) * 3.2 * swell;
-    h += Math.cos(z*0.045 - t*0.5) * 2.4 * swell;
-    h += Math.sin((x+z)*0.08 + t*1.3) * 1.1 * chop;
-    h += Math.sin(x*0.15 - t*1.9) * Math.cos(z*0.12 + t*1.1) * 0.7 * chop;
-    return h;
+    for (var wi = 0; wi < WAVE_SET.length; wi++){
+      var w = WAVE_SET[wi];
+      var proj = x * waveDirX[wi] + z * waveDirZ[wi];
+      var amp = w.amp * (w.band === 'swell' ? swell : chop);
+      h += Math.sin(proj * w.freq + t * w.speed) * amp;
+    }
+    return h * shoreFalloff(x, z);
   }
 
   var pos = geo.attributes.position;
@@ -326,6 +574,7 @@
     var eps = 1.2;
     var lightColor = new THREE.Color(0xfff0b0);
     var glowColor = new THREE.Color(0xb8fff0);
+    var foamColor = new THREE.Color(0xf3faff);
 
     for (var i=0; i<pos.count; i++){
       var ix = i * 3;
@@ -373,6 +622,11 @@
       var aquaAmount = Math.min(1, glowAmount * 0.95);
       tmpColor.lerp(glowColor, aquaAmount * 0.62);
 
+      // Whitecap foam on the highest crests.
+      if (f > 0.8) {
+        tmpColor.lerp(foamColor, Math.min(1, (f - 0.8) / 0.2) * 0.85);
+      }
+
       col.array[ix]   = tmpColor.r;
       col.array[ix+1] = tmpColor.g;
       col.array[ix+2] = tmpColor.b;
@@ -414,15 +668,31 @@
   window.addEventListener('touchend', pointerUp);
 
   var keys = {};
+  var flying = false;
+  var walkHeight = 12;
+  var jumpOffset = 0, verticalVelocity = 0, grounded = true;
+  var JUMP_SPEED = 15, GRAVITY = 38;
   window.addEventListener('keydown', function(e){
     keys[e.code] = true;
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) !== -1) e.preventDefault();
     autoDrift = false;
+    if (e.code === 'KeyF' && !e.repeat){
+      flying = !flying;
+      if (!flying){
+        camera.position.y = walkHeight;
+        jumpOffset = 0; verticalVelocity = 0; grounded = true;
+      }
+    }
+    if (e.code === 'Space' && !e.repeat && !flying && grounded){
+      verticalVelocity = JUMP_SPEED;
+      grounded = false;
+    }
   }, {passive:false});
   window.addEventListener('keyup', function(e){ keys[e.code] = false; });
 
   var moveSpeed = 26; // units per second
   var forward = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0,1,0);
+  var flatForward = new THREE.Vector3(), flatRight = new THREE.Vector3();
 
   var clock = new THREE.Clock();
 
@@ -443,20 +713,46 @@
     forward.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch));
     right.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
 
-    var dist = moveSpeed * dt * ((keys['ShiftLeft']||keys['ShiftRight']) ? 4.5 : 1);
-    if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
-    if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
-    if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
-    if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right, -dist);
-    if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
-    if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
+    var running = keys['ShiftLeft']||keys['ShiftRight'];
+    var dist = moveSpeed * dt * (running ? 4.5 : 1);
 
-    camera.position.y = Math.max(camera.position.y, -8);
+    if (flying){
+      if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
+      if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
+      if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
+      if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right, -dist);
+      if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
+      if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
+      camera.position.y = Math.max(camera.position.y, -8);
+    } else {
+      // First-person walking: movement is flattened to the horizontal
+      // plane (no vertical component from look pitch), and eye height
+      // stays fixed rather than following the look direction.
+      flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
+      flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
+      var walkDist = moveSpeed * dt * (running ? 2.2 : 1);
+      if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(flatForward, walkDist);
+      if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(flatForward, -walkDist);
+      if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(flatRight, walkDist);
+      if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(flatRight, -walkDist);
+
+      if (!grounded || jumpOffset > 0 || verticalVelocity !== 0){
+        verticalVelocity -= GRAVITY * dt;
+        jumpOffset += verticalVelocity * dt;
+        if (jumpOffset <= 0){
+          jumpOffset = 0;
+          verticalVelocity = 0;
+          grounded = true;
+        }
+      }
+      camera.position.y = walkHeight + jumpOffset;
+    }
 
     var lookTarget = camera.position.clone().add(forward);
     camera.lookAt(lookTarget);
 
     updateOcean(t);
+    updateBoat(t);
     renderer.render(scene, camera);
   }
   animate();
