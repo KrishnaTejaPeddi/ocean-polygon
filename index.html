@@ -938,25 +938,50 @@
       var wTryX = playerX + wx * walkDist;
       if (!blockedForWalking(wTryX, playerZ)){
         var gAtX = groundHeightAt(wTryX, playerZ);
-        if (!grounded || gAtX <= curGroundHere + STEP_EPS) playerX = wTryX;
+        // In the air, do not let the player pass through the vertical face
+        // of a higher grass/land tier. They can enter it once their feet
+        // have reached that tier's height.
+        var higherTierX = gAtX > curGroundHere + STEP_EPS;
+        if ((!grounded && (!higherTierX || playerY >= gAtX)) ||
+            (grounded && gAtX <= curGroundHere + STEP_EPS)){
+          playerX = wTryX;
+        }
       }
       var wTryZ = playerZ + wz * walkDist;
       if (!blockedForWalking(playerX, wTryZ)){
         var gAtZ = groundHeightAt(playerX, wTryZ);
-        if (!grounded || gAtZ <= curGroundHere + STEP_EPS) playerZ = wTryZ;
+        var currentGroundAfterX = groundHeightAt(playerX, playerZ);
+        var higherTierZ = gAtZ > currentGroundAfterX + STEP_EPS;
+        if ((!grounded && (!higherTierZ || playerY >= gAtZ)) ||
+            (grounded && gAtZ <= currentGroundAfterX + STEP_EPS)){
+          playerZ = wTryZ;
+        }
       }
 
       var groundNow = groundHeightAt(playerX, playerZ);
       if (!grounded){
         verticalVelocity -= GRAVITY * dt;
-        playerY += verticalVelocity * dt;
-        if (playerY <= groundNow){
+        var nextPlayerY = playerY + verticalVelocity * dt;
+
+        // The player's feet cannot pass through a land tier from either
+        // direction. While rising, this catches the underside/edge of a
+        // higher tier; while falling, it catches the top surface.
+        if (nextPlayerY <= groundNow){
           playerY = groundNow;
           verticalVelocity = 0;
           grounded = true;
+        } else {
+          playerY = nextPlayerY;
         }
       } else {
-        playerY = groundNow;
+        // Walking from higher ground onto lower ground should turn into
+        // a fall instead of instantly teleporting the player downward.
+        if (groundNow < playerY - 0.01){
+          grounded = false;
+          verticalVelocity = -2;
+        } else {
+          playerY = groundNow;
+        }
       }
 
       landBean.visible = thirdPerson;
