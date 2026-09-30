@@ -1,4 +1,4 @@
-\<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -85,7 +85,7 @@
 <div id="hud">
   <div id="title">a low-poly sea</div>
 </div>
-<div id="hint">drag to look · WASD to move · shift to run · F to fly · control the sun below</div>
+<div id="hint">drag to look · WASD to move · shift to run · space to jump · F to fly · E to board/leave the boat</div>
 <div id="controls">
   <div class="ctrl">
     <label><span>swell</span><span id="swellVal">1.0</span></label>
@@ -298,6 +298,102 @@
   islandGroup.position.set(-110, 0, -90);
   scene.add(islandGroup);
 
+  // Water/land boundary used for movement collision later on.
+  var WATER_EDGE = 290;
+  var LAND_OUTER_EDGE = 555; // the mountain wall: solid, you bump into it
+  var ISLAND_CENTER = {x:-110, z:-90}, ISLAND_LAND_RADIUS = 34;
+  function isWater(x, z){
+    if (Math.max(Math.abs(x), Math.abs(z)) >= WATER_EDGE) return false;
+    var dx = x - ISLAND_CENTER.x, dz = z - ISLAND_CENTER.z;
+    return Math.sqrt(dx*dx + dz*dz) >= ISLAND_LAND_RADIUS;
+  }
+  function blockedForWalking(x, z){
+    return isWater(x, z) || Math.max(Math.abs(x), Math.abs(z)) > LAND_OUTER_EDGE;
+  }
+
+  // Small low-poly props: rocks, bushes, trees.
+  var stoneMat = new THREE.MeshStandardMaterial({color:0x9a978c, flatShading:true, roughness:1, fog:false});
+  var bushMat = new THREE.MeshStandardMaterial({color:0x3f7a3f, flatShading:true, roughness:0.9, fog:false});
+  var trunkMat2 = new THREE.MeshStandardMaterial({color:0x5c4530, flatShading:true, fog:false});
+
+  function makeRock(s){
+    var m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), stoneMat);
+    m.scale.set(s*(0.8+Math.random()*0.6), s*(0.5+Math.random()*0.5), s*(0.8+Math.random()*0.6));
+    m.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+    return m;
+  }
+  function makeBush(s){
+    var g = new THREE.Group();
+    for (var i=0;i<3;i++){
+      var lobe = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), bushMat);
+      lobe.position.set((Math.random()-0.5)*1.2, 0.5+Math.random()*0.3, (Math.random()-0.5)*1.2);
+      lobe.scale.setScalar(0.8+Math.random()*0.5);
+      g.add(lobe);
+    }
+    g.scale.setScalar(s);
+    return g;
+  }
+  function makeTree(s){
+    var g = new THREE.Group();
+    var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.5,6,6), trunkMat2);
+    trunk.position.y = 3;
+    g.add(trunk);
+    var top = new THREE.Mesh(new THREE.IcosahedronGeometry(3, 0), grassMat.map ? bushMat : grassMat);
+    top.position.y = 7.5;
+    top.scale.set(1,1.15,1);
+    g.add(top);
+    g.scale.setScalar(s);
+    return g;
+  }
+
+  var propGroup = new THREE.Group();
+  function scatterProps(count, maker, minR, maxR, cx, cz){
+    var placed = 0, tries = 0;
+    while (placed < count && tries < count * 12){
+      tries++;
+      var a = Math.random() * Math.PI * 2;
+      var r = minR + Math.random() * (maxR - minR);
+      var x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (isWater(x, z)) continue;
+      var p = maker(0.7 + Math.random() * 0.8);
+      p.position.set(x, 0, z);
+      propGroup.add(p);
+      placed++;
+    }
+  }
+  // Around the main shore/grass band.
+  scatterProps(26, makeTree, 300, 560, 0, 0);
+  scatterProps(30, makeBush, 295, 570, 0, 0);
+  scatterProps(40, makeRock, 285, 600, 0, 0);
+  // On and around the standalone island.
+  scatterProps(4, makeTree, 0, 30, ISLAND_CENTER.x, ISLAND_CENTER.z);
+  scatterProps(6, makeBush, 0, 32, ISLAND_CENTER.x, ISLAND_CENTER.z);
+  scatterProps(8, makeRock, 0, 36, ISLAND_CENTER.x, ISLAND_CENTER.z);
+  scene.add(propGroup);
+
+  // Instanced 3D grass blades across the grassy land band.
+  var bladeGeo = new THREE.BoxGeometry(0.12, 1, 0.05);
+  bladeGeo.translate(0, 0.5, 0);
+  var bladeMat = new THREE.MeshStandardMaterial({color:0x5b9a4f, flatShading:true, side:THREE.DoubleSide, fog:false});
+  var GRASS_COUNT = 4000;
+  var grassBlades = new THREE.InstancedMesh(bladeGeo, bladeMat, GRASS_COUNT);
+  var gdummy = new THREE.Object3D();
+  var gplaced = 0, gtries = 0;
+  while (gplaced < GRASS_COUNT && gtries < GRASS_COUNT * 4){
+    gtries++;
+    var gx2 = (Math.random()*2-1) * 560, gz2 = (Math.random()*2-1) * 560;
+    if (isWater(gx2, gz2)) continue;
+    if (Math.max(Math.abs(gx2), Math.abs(gz2)) < 300) continue; // skip sandy beach ring
+    gdummy.position.set(gx2, 6.4, gz2);
+    gdummy.rotation.y = Math.random() * Math.PI * 2;
+    var gs = 0.6 + Math.random() * 0.9;
+    gdummy.scale.set(gs, gs * (0.7 + Math.random() * 0.7), gs);
+    gdummy.updateMatrix();
+    grassBlades.setMatrixAt(gplaced, gdummy.matrix);
+    gplaced++;
+  }
+  scene.add(grassBlades);
+
   // Land surrounding the ocean on every side: a square frame with a
   // square hole over the water, sandy near the shore and grassy beyond it.
   function makeShoreFrame(innerHalf, outerHalf, thickness, material, baseY){
@@ -380,7 +476,7 @@
   sail.rotation.y = Math.PI / 2;
   sail.position.set(0.3, 4.5, 0);
   boat.add(sail);
-  var boatX = 45, boatZ = -35;
+  var boatX = 10, boatZ = 275;
   boat.position.set(boatX, 0, boatZ);
   scene.add(boat);
 
@@ -389,6 +485,8 @@
     var y = waveHeight(boatX, boatZ, t);
     var hx = waveHeight(boatX+epsB, boatZ, t) - waveHeight(boatX-epsB, boatZ, t);
     var hz = waveHeight(boatX, boatZ+epsB, t) - waveHeight(boatX, boatZ-epsB, t);
+    boat.position.x = boatX;
+    boat.position.z = boatZ;
     boat.position.y = y + 0.6;
     boat.rotation.z = -hx * 0.05;
     boat.rotation.x = hz * 0.05;
@@ -672,6 +770,7 @@
   var walkHeight = 12;
   var jumpOffset = 0, verticalVelocity = 0, grounded = true;
   var JUMP_SPEED = 15, GRAVITY = 38;
+  var onBoat = false, MOUNT_RANGE = 16;
   window.addEventListener('keydown', function(e){
     keys[e.code] = true;
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) !== -1) e.preventDefault();
@@ -686,6 +785,18 @@
     if (e.code === 'Space' && !e.repeat && !flying && grounded){
       verticalVelocity = JUMP_SPEED;
       grounded = false;
+    }
+    if (e.code === 'KeyE' && !e.repeat && !flying){
+      if (!onBoat){
+        var bdx = camera.position.x - boatX, bdz = camera.position.z - boatZ;
+        if (Math.sqrt(bdx*bdx + bdz*bdz) < MOUNT_RANGE) onBoat = true;
+      } else {
+        // Only step off where the boat is actually near solid ground.
+        var edx = camera.position.x - ISLAND_CENTER.x, edz = camera.position.z - ISLAND_CENTER.z;
+        var nearIsland = Math.sqrt(edx*edx + edz*edz) < ISLAND_LAND_RADIUS + MOUNT_RANGE;
+        var nearShore = Math.max(Math.abs(boatX), Math.abs(boatZ)) > WATER_EDGE - MOUNT_RANGE;
+        if (nearIsland || nearShore) onBoat = false;
+      }
     }
   }, {passive:false});
   window.addEventListener('keyup', function(e){ keys[e.code] = false; });
@@ -724,17 +835,47 @@
       if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
       if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
       camera.position.y = Math.max(camera.position.y, -8);
+    } else if (onBoat){
+      // Driving the boat: confined to water, blocked by land.
+      flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
+      flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
+      var boatDist = moveSpeed * dt * (running ? 2.0 : 1);
+      var mx = 0, mz = 0;
+      if (keys['KeyW']||keys['ArrowUp'])    { mx += flatForward.x; mz += flatForward.z; }
+      if (keys['KeyS']||keys['ArrowDown'])  { mx -= flatForward.x; mz -= flatForward.z; }
+      if (keys['KeyD']||keys['ArrowRight']) { mx += flatRight.x;   mz += flatRight.z; }
+      if (keys['KeyA']||keys['ArrowLeft'])  { mx -= flatRight.x;   mz -= flatRight.z; }
+      var tryX = boatX + mx * boatDist;
+      var tryZ = boatZ + mz * boatDist;
+      if (isWater(tryX, boatZ)) boatX = tryX;
+      if (isWater(boatX, tryZ)) boatZ = tryZ;
+      boat.rotation.y = yaw;
+
+      // Third-person chase camera, trailing behind and above the boat.
+      var camDist = 22, camHeight = 11;
+      camera.position.set(
+        boatX - Math.sin(yaw) * camDist,
+        boat.position.y + camHeight,
+        boatZ - Math.cos(yaw) * camDist
+      );
+      camera.lookAt(boatX, boat.position.y + 2, boatZ);
     } else {
       // First-person walking: movement is flattened to the horizontal
       // plane (no vertical component from look pitch), and eye height
-      // stays fixed rather than following the look direction.
+      // stays fixed rather than following the look direction. Blocked
+      // by open water — land only.
       flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
       var walkDist = moveSpeed * dt * (running ? 2.2 : 1);
-      if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(flatForward, walkDist);
-      if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(flatForward, -walkDist);
-      if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(flatRight, walkDist);
-      if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(flatRight, -walkDist);
+      var wx = 0, wz = 0;
+      if (keys['KeyW']||keys['ArrowUp'])    { wx += flatForward.x; wz += flatForward.z; }
+      if (keys['KeyS']||keys['ArrowDown'])  { wx -= flatForward.x; wz -= flatForward.z; }
+      if (keys['KeyD']||keys['ArrowRight']) { wx += flatRight.x;   wz += flatRight.z; }
+      if (keys['KeyA']||keys['ArrowLeft'])  { wx -= flatRight.x;   wz -= flatRight.z; }
+      var wTryX = camera.position.x + wx * walkDist;
+      var wTryZ = camera.position.z + wz * walkDist;
+      if (!blockedForWalking(wTryX, camera.position.z)) camera.position.x = wTryX;
+      if (!blockedForWalking(camera.position.x, wTryZ)) camera.position.z = wTryZ;
 
       if (!grounded || jumpOffset > 0 || verticalVelocity !== 0){
         verticalVelocity -= GRAVITY * dt;
@@ -748,8 +889,10 @@
       camera.position.y = walkHeight + jumpOffset;
     }
 
-    var lookTarget = camera.position.clone().add(forward);
-    camera.lookAt(lookTarget);
+    if (!onBoat){
+      var lookTarget = camera.position.clone().add(forward);
+      camera.lookAt(lookTarget);
+    }
 
     updateOcean(t);
     updateBoat(t);
