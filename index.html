@@ -85,7 +85,7 @@
 <div id="hud">
   <div id="title">a low-poly sea</div>
 </div>
-<div id="hint">drag to look · WASD to move · shift to run · space to jump · F to fly · E to board/leave the boat</div>
+<div id="hint">drag to look · WASD to move · shift to run · space to jump · T for 3rd person · F to fly · E to board/leave the boat</div>
 <div id="controls">
   <div class="ctrl">
     <label><span>swell</span><span id="swellVal">1.0</span></label>
@@ -311,6 +311,21 @@
     return isWater(x, z) || Math.max(Math.abs(x), Math.abs(z)) > LAND_OUTER_EDGE;
   }
 
+  // Real altitude difference between sand and grass — tall enough that
+  // you have to jump to get up from the beach onto the grass. Levels are
+  // the actual mesh surface height plus a normal eye height, so the
+  // camera sits right on the ground instead of floating above it.
+  var EYE_HEIGHT = 5;
+  var SAND_LEVEL = 1.8;    // top of the shore sand frame (feet level)
+  var GRASS_LEVEL = 6.5;   // top of the shore grass frame (feet level)
+  var ISLAND_LEVEL = 7;    // top of the standalone island's beach (feet level)
+  var SAND_GRASS_BOUNDARY = 344;
+  function groundHeightAt(x, z){
+    var idx = x - ISLAND_CENTER.x, idz = z - ISLAND_CENTER.z;
+    if (Math.sqrt(idx*idx + idz*idz) < ISLAND_LAND_RADIUS) return ISLAND_LEVEL;
+    return Math.max(Math.abs(x), Math.abs(z)) < SAND_GRASS_BOUNDARY ? SAND_LEVEL : GRASS_LEVEL;
+  }
+
   // Small low-poly props: rocks, bushes, trees.
   var stoneMat = new THREE.MeshStandardMaterial({color:0x9a978c, flatShading:true, roughness:1, fog:false});
   var bushMat = new THREE.MeshStandardMaterial({color:0x3f7a3f, flatShading:true, roughness:0.9, fog:false});
@@ -476,9 +491,34 @@
   sail.rotation.y = Math.PI / 2;
   sail.position.set(0.3, 4.5, 0);
   boat.add(sail);
+  // A simple bean-shaped character, standing on the boat deck.
+  var beanMat = new THREE.MeshStandardMaterial({color:0xf2c14e, flatShading:true, roughness:0.7, fog:false});
+  var bean = new THREE.Group();
+  var beanBody = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6), beanMat);
+  beanBody.scale.set(0.85, 1.35, 0.85);
+  bean.add(beanBody);
+  var beanHead = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6), beanMat);
+  beanHead.position.y = 1.75;
+  bean.add(beanHead);
+  bean.position.set(0, 3.1, 0.5);
+  boat.add(bean);
+
   var boatX = 10, boatZ = 275;
   boat.position.set(boatX, 0, boatZ);
   scene.add(boat);
+
+  // A separate bean, standing on the ground, feet at its own origin —
+  // shown only while walking in third-person mode.
+  var landBean = new THREE.Group();
+  var landBeanBody = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6), beanMat);
+  landBeanBody.scale.set(0.85, 1.35, 0.85);
+  landBeanBody.position.y = 1.75;
+  landBean.add(landBeanBody);
+  var landBeanHead = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 6), beanMat);
+  landBeanHead.position.y = 3.5;
+  landBean.add(landBeanHead);
+  landBean.visible = false;
+  scene.add(landBean);
 
   function updateBoat(t){
     var epsB = 1.5;
@@ -767,35 +807,51 @@
 
   var keys = {};
   var flying = false;
-  var walkHeight = 12;
-  var jumpOffset = 0, verticalVelocity = 0, grounded = true;
-  var JUMP_SPEED = 15, GRAVITY = 38;
+  var verticalVelocity = 0, grounded = true;
+  var JUMP_SPEED = 19, GRAVITY = 30; // clears the ~4-unit sand-to-grass step with some margin
+  var STEP_EPS = 0.5;
   var onBoat = false, MOUNT_RANGE = 16;
+  var thirdPerson = false;
+  // The player's real simulated position while walking. In first person
+  // the camera sits exactly here; in third person the camera pulls back
+  // and this is where the bean stands instead.
+  var playerX = camera.position.x, playerY = camera.position.y, playerZ = camera.position.z;
   window.addEventListener('keydown', function(e){
     keys[e.code] = true;
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) !== -1) e.preventDefault();
     autoDrift = false;
     if (e.code === 'KeyF' && !e.repeat){
       flying = !flying;
-      if (!flying){
-        camera.position.y = walkHeight;
-        jumpOffset = 0; verticalVelocity = 0; grounded = true;
+      if (flying){
+        thirdPerson = false;
+      } else {
+        verticalVelocity = 0;
+        grounded = true;
       }
     }
     if (e.code === 'Space' && !e.repeat && !flying && grounded){
       verticalVelocity = JUMP_SPEED;
       grounded = false;
     }
+    if (e.code === 'KeyT' && !e.repeat && !flying && !onBoat){
+      thirdPerson = !thirdPerson;
+    }
     if (e.code === 'KeyE' && !e.repeat && !flying){
       if (!onBoat){
-        var bdx = camera.position.x - boatX, bdz = camera.position.z - boatZ;
+        var bdx = playerX - boatX, bdz = playerZ - boatZ;
         if (Math.sqrt(bdx*bdx + bdz*bdz) < MOUNT_RANGE) onBoat = true;
       } else {
         // Only step off where the boat is actually near solid ground.
-        var edx = camera.position.x - ISLAND_CENTER.x, edz = camera.position.z - ISLAND_CENTER.z;
+        var edx = boatX - ISLAND_CENTER.x, edz = boatZ - ISLAND_CENTER.z;
         var nearIsland = Math.sqrt(edx*edx + edz*edz) < ISLAND_LAND_RADIUS + MOUNT_RANGE;
         var nearShore = Math.max(Math.abs(boatX), Math.abs(boatZ)) > WATER_EDGE - MOUNT_RANGE;
-        if (nearIsland || nearShore) onBoat = false;
+        if (nearIsland || nearShore){
+          onBoat = false;
+          // Resume walking from wherever the boat currently is.
+          playerX = boatX; playerZ = boatZ;
+          playerY = groundHeightAt(boatX, boatZ);
+          grounded = true; verticalVelocity = 0;
+        }
       }
     }
   }, {passive:false});
@@ -828,6 +884,7 @@
     var dist = moveSpeed * dt * (running ? 4.5 : 1);
 
     if (flying){
+      landBean.visible = false;
       if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
       if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
       if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
@@ -836,6 +893,7 @@
       if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
       camera.position.y = Math.max(camera.position.y, -8);
     } else if (onBoat){
+      landBean.visible = false;
       // Driving the boat: confined to water, blocked by land.
       flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
@@ -851,13 +909,17 @@
       if (isWater(boatX, tryZ)) boatZ = tryZ;
       boat.rotation.y = yaw;
 
-      // Third-person chase camera, trailing behind and above the boat.
-      var camDist = 22, camHeight = 11;
+      // Free-orbiting third-person camera: drag still uses yaw/pitch,
+      // but now it orbits the boat in full 3D instead of only turning
+      // horizontally. Clamped so it can never dip below the water.
+      var camDist = 26;
       camera.position.set(
-        boatX - Math.sin(yaw) * camDist,
-        boat.position.y + camHeight,
-        boatZ - Math.cos(yaw) * camDist
+        boatX - forward.x * camDist,
+        boat.position.y + 8 - forward.y * camDist,
+        boatZ - forward.z * camDist
       );
+      var waterFloor = waveHeight(camera.position.x, camera.position.z, t) + 2;
+      if (camera.position.y < waterFloor) camera.position.y = waterFloor;
       camera.lookAt(boatX, boat.position.y + 2, boatZ);
     } else {
       // First-person walking: movement is flattened to the horizontal
@@ -872,24 +934,50 @@
       if (keys['KeyS']||keys['ArrowDown'])  { wx -= flatForward.x; wz -= flatForward.z; }
       if (keys['KeyD']||keys['ArrowRight']) { wx += flatRight.x;   wz += flatRight.z; }
       if (keys['KeyA']||keys['ArrowLeft'])  { wx -= flatRight.x;   wz -= flatRight.z; }
-      var wTryX = camera.position.x + wx * walkDist;
-      var wTryZ = camera.position.z + wz * walkDist;
-      if (!blockedForWalking(wTryX, camera.position.z)) camera.position.x = wTryX;
-      if (!blockedForWalking(camera.position.x, wTryZ)) camera.position.z = wTryZ;
+      var curGroundHere = groundHeightAt(playerX, playerZ);
+      var wTryX = playerX + wx * walkDist;
+      if (!blockedForWalking(wTryX, playerZ)){
+        var gAtX = groundHeightAt(wTryX, playerZ);
+        if (!grounded || gAtX <= curGroundHere + STEP_EPS) playerX = wTryX;
+      }
+      var wTryZ = playerZ + wz * walkDist;
+      if (!blockedForWalking(playerX, wTryZ)){
+        var gAtZ = groundHeightAt(playerX, wTryZ);
+        if (!grounded || gAtZ <= curGroundHere + STEP_EPS) playerZ = wTryZ;
+      }
 
-      if (!grounded || jumpOffset > 0 || verticalVelocity !== 0){
+      var groundNow = groundHeightAt(playerX, playerZ);
+      if (!grounded){
         verticalVelocity -= GRAVITY * dt;
-        jumpOffset += verticalVelocity * dt;
-        if (jumpOffset <= 0){
-          jumpOffset = 0;
+        playerY += verticalVelocity * dt;
+        if (playerY <= groundNow){
+          playerY = groundNow;
           verticalVelocity = 0;
           grounded = true;
         }
+      } else {
+        playerY = groundNow;
       }
-      camera.position.y = walkHeight + jumpOffset;
+
+      landBean.visible = thirdPerson;
+      landBean.position.set(playerX, playerY, playerZ);
+      landBean.rotation.y = yaw;
+
+      var eyeY = playerY + EYE_HEIGHT;
+      if (thirdPerson){
+        var pcamDist = 15;
+        camera.position.set(
+          playerX - forward.x * pcamDist,
+          eyeY + 1 - forward.y * pcamDist * 0.5,
+          playerZ - forward.z * pcamDist
+        );
+        camera.lookAt(playerX, eyeY, playerZ);
+      } else {
+        camera.position.set(playerX, eyeY, playerZ);
+      }
     }
 
-    if (!onBoat){
+    if (!onBoat && !thirdPerson){
       var lookTarget = camera.position.clone().add(forward);
       camera.lookAt(lookTarget);
     }
