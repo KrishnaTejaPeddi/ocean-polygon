@@ -121,6 +121,17 @@
   </div>
 </div>
 
+<div id="titleScreen" style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at center, rgba(10,26,43,0.65), rgba(4,16,28,0.92));z-index:20;text-align:center;">
+  <div style="font-size:42px;font-style:italic;letter-spacing:0.03em;color:#dceaf5;text-shadow:0 4px 20px rgba(0,0,0,0.6);">a low-poly sea</div>
+  <div style="margin-top:10px;font-size:14px;color:rgba(220,234,245,0.7);max-width:360px;">walk the shore, climb the mountains, sail the water — don't fall off the edge of the world</div>
+  <button id="playBtn" style="margin-top:28px;padding:12px 36px;font-size:16px;font-family:Georgia, serif;font-style:italic;letter-spacing:0.04em;color:#06141f;background:#7fd8d0;border:none;border-radius:4px;cursor:pointer;">Play</button>
+</div>
+
+<div id="deathScreen" style="position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(10,4,6,0.82);z-index:20;text-align:center;">
+  <div style="font-size:36px;font-style:italic;letter-spacing:0.03em;color:#f3d6d6;text-shadow:0 4px 20px rgba(0,0,0,0.7);">you fell off the world</div>
+  <button id="respawnBtn" style="margin-top:26px;padding:12px 36px;font-size:16px;font-family:Georgia, serif;font-style:italic;letter-spacing:0.04em;color:#2a0b0b;background:#e3a0a0;border:none;border-radius:4px;cursor:pointer;">Respawn</button>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
@@ -300,35 +311,25 @@
 
   // Water/land boundary used for movement collision later on.
   var WATER_EDGE = 290;
-  var LAND_OUTER_EDGE = 555; // the mountain wall: solid, you bump into it
   var ISLAND_CENTER = {x:-110, z:-90}, ISLAND_LAND_RADIUS = 34;
   function isWater(x, z){
     if (Math.max(Math.abs(x), Math.abs(z)) >= WATER_EDGE) return false;
     var dx = x - ISLAND_CENTER.x, dz = z - ISLAND_CENTER.z;
     return Math.sqrt(dx*dx + dz*dz) >= ISLAND_LAND_RADIUS;
   }
+  // No bounding wall — walking is only blocked by open water. Beyond the
+  // mountains the terrain function below simply returns "no ground",
+  // which is what turns that into a fall.
   function blockedForWalking(x, z){
-    return isWater(x, z) || Math.max(Math.abs(x), Math.abs(z)) > LAND_OUTER_EDGE;
+    return isWater(x, z);
   }
 
-  // Real altitude difference between sand and grass — tall enough that
-  // you have to jump to get up from the beach onto the grass. Levels are
-  // the actual mesh surface height plus a normal eye height, so the
-  // camera sits right on the ground instead of floating above it.
-  var EYE_HEIGHT = 5;
-  var SAND_LEVEL = 1.8;    // top of the shore sand frame (feet level)
-  var GRASS_LEVEL = 6.5;   // top of the shore grass frame (feet level)
-  var ISLAND_LEVEL = 7;    // top of the standalone island's beach (feet level)
-  var SAND_GRASS_BOUNDARY = 344;
-  function groundHeightAt(x, z){
-    var idx = x - ISLAND_CENTER.x, idz = z - ISLAND_CENTER.z;
-    if (Math.sqrt(idx*idx + idz*idz) < ISLAND_LAND_RADIUS) return ISLAND_LEVEL;
-    return Math.max(Math.abs(x), Math.abs(z)) < SAND_GRASS_BOUNDARY ? SAND_LEVEL : GRASS_LEVEL;
-  }
-
-  // Small low-poly props: rocks, bushes, trees.
+  // Small low-poly props: rocks, pebbles, bushes, trees.
   var stoneMat = new THREE.MeshStandardMaterial({color:0x9a978c, flatShading:true, roughness:1, fog:false});
+  var pebbleMat = new THREE.MeshStandardMaterial({color:0x8d8a7e, flatShading:true, roughness:1, fog:false});
   var bushMat = new THREE.MeshStandardMaterial({color:0x3f7a3f, flatShading:true, roughness:0.9, fog:false});
+  var bushMat2 = new THREE.MeshStandardMaterial({color:0x5a8f4a, flatShading:true, roughness:0.9, fog:false});
+  var flowerMat = new THREE.MeshStandardMaterial({color:0xe0609a, flatShading:true, roughness:0.8, fog:false});
   var trunkMat2 = new THREE.MeshStandardMaterial({color:0x5c4530, flatShading:true, fog:false});
 
   function makeRock(s){
@@ -337,13 +338,38 @@
     m.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
     return m;
   }
+  function makePebbleCluster(s){
+    var g = new THREE.Group();
+    var n = 2 + Math.floor(Math.random()*3);
+    for (var i=0;i<n;i++){
+      var p = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 0), pebbleMat);
+      p.position.set((Math.random()-0.5)*1.4, 0.12, (Math.random()-0.5)*1.4);
+      p.scale.setScalar(0.6+Math.random()*0.7);
+      p.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+      g.add(p);
+    }
+    g.scale.setScalar(s);
+    return g;
+  }
   function makeBush(s){
     var g = new THREE.Group();
+    var mat = Math.random() > 0.5 ? bushMat : bushMat2;
     for (var i=0;i<3;i++){
-      var lobe = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), bushMat);
+      var lobe = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), mat);
       lobe.position.set((Math.random()-0.5)*1.2, 0.5+Math.random()*0.3, (Math.random()-0.5)*1.2);
       lobe.scale.setScalar(0.8+Math.random()*0.5);
       g.add(lobe);
+    }
+    g.scale.setScalar(s);
+    return g;
+  }
+  function makeFlowerPatch(s){
+    var g = new THREE.Group();
+    var n = 3 + Math.floor(Math.random()*4);
+    for (var i=0;i<n;i++){
+      var f = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), flowerMat);
+      f.position.set((Math.random()-0.5)*1.6, 0.3, (Math.random()-0.5)*1.6);
+      g.add(f);
     }
     g.scale.setScalar(s);
     return g;
@@ -353,7 +379,7 @@
     var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.5,6,6), trunkMat2);
     trunk.position.y = 3;
     g.add(trunk);
-    var top = new THREE.Mesh(new THREE.IcosahedronGeometry(3, 0), grassMat.map ? bushMat : grassMat);
+    var top = new THREE.Mesh(new THREE.IcosahedronGeometry(3, 0), bushMat);
     top.position.y = 7.5;
     top.scale.set(1,1.15,1);
     g.add(top);
@@ -380,13 +406,16 @@
   scatterProps(26, makeTree, 300, 560, 0, 0);
   scatterProps(30, makeBush, 295, 570, 0, 0);
   scatterProps(40, makeRock, 285, 600, 0, 0);
+  scatterProps(55, makePebbleCluster, 295, 610, 0, 0);
+  scatterProps(35, makeFlowerPatch, 300, 580, 0, 0);
   // On and around the standalone island.
   scatterProps(4, makeTree, 0, 30, ISLAND_CENTER.x, ISLAND_CENTER.z);
   scatterProps(6, makeBush, 0, 32, ISLAND_CENTER.x, ISLAND_CENTER.z);
   scatterProps(8, makeRock, 0, 36, ISLAND_CENTER.x, ISLAND_CENTER.z);
+  scatterProps(10, makePebbleCluster, 0, 34, ISLAND_CENTER.x, ISLAND_CENTER.z);
   scene.add(propGroup);
 
-  // Instanced 3D grass blades across the grassy land band.
+  // Instanced 3D grass blades — only across real grass land, never the sand.
   var bladeGeo = new THREE.BoxGeometry(0.12, 1, 0.05);
   bladeGeo.translate(0, 0.5, 0);
   var bladeMat = new THREE.MeshStandardMaterial({color:0x5b9a4f, flatShading:true, side:THREE.DoubleSide, fog:false});
@@ -398,7 +427,7 @@
     gtries++;
     var gx2 = (Math.random()*2-1) * 560, gz2 = (Math.random()*2-1) * 560;
     if (isWater(gx2, gz2)) continue;
-    if (Math.max(Math.abs(gx2), Math.abs(gz2)) < 300) continue; // skip sandy beach ring
+    if (Math.max(Math.abs(gx2), Math.abs(gz2)) < 344) continue; // sand ring: no grass here
     gdummy.position.set(gx2, 6.4, gz2);
     gdummy.rotation.y = Math.random() * Math.PI * 2;
     var gs = 0.6 + Math.random() * 0.9;
@@ -439,7 +468,8 @@
 
   // A dense wall of low-poly mountains following the square edge of the
   // land (corners included), tall and overlapping enough that the edge
-  // of the map is never visible past them.
+  // of the map is never visible past them. Their data is kept around so
+  // the ground-height function below can let you actually climb them.
   function squarePerimeterPoint(t, half){
     var side = ((t % 1) + 1) % 1 * 4;
     var i = Math.floor(side), f = side - i;
@@ -449,6 +479,7 @@
     return {x: -half, z: half - f * 2 * half};
   }
   var mountainGroup = new THREE.Group();
+  var mountainData = []; // {x, z, r, h} for terrain-height sampling
   var mCount = 34, mHalf = 600;
   for (var mi = 0; mi < mCount; mi++){
     var p = squarePerimeterPoint(mi / mCount + (Math.random()-0.5)*0.01, mHalf);
@@ -462,8 +493,10 @@
     peakMesh.position.set(px, mh / 2 - 2, pz);
     peakMesh.rotation.y = Math.random() * Math.PI;
     mountainGroup.add(peakMesh);
+    mountainData.push({x: px, z: pz, r: mr * 0.92, h: mh - 2});
   }
   scene.add(mountainGroup);
+  var FALL_EDGE = 760; // past the mountains, there's no ground left at all
 
   var basePos = geo.attributes.position.array.slice();
 
@@ -613,23 +646,25 @@
     return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
   }
 
+  // Sun and moon share a single circle and sit at exactly opposite points
+  // on it. Their height is clamped so the visible globe never dips below
+  // the horizon far enough to clip through the terrain.
+  var MIN_CELESTIAL_HEIGHT = 22;
+
   function updateSun(){
     var time = params.sunTime;
     var angle = (time / 24) * Math.PI * 2 - Math.PI / 2;
 
-    // Sun and moon share a single circle (centered on the world origin,
-    // at a fixed depth) and sit at exactly opposite points on it, so the
-    // moment the sun dips below the horizon on one side, the moon is
-    // rising on the other.
     var radiusH = 170, radiusV = 175 * params.sunHeight, depth = 45;
     var sunX = Math.cos(angle) * radiusH;
-    var sunY = Math.sin(angle) * radiusV;
+    var sunY = Math.max(Math.sin(angle) * radiusV, MIN_CELESTIAL_HEIGHT);
 
     sun.position.set(sunX, sunY, depth);
     sun.target.position.set(0, 0, 0);
     if (!sun.target.parent) scene.add(sun.target);
 
-    var moonX = -sunX, moonY = -sunY;
+    var moonX = -sunX;
+    var moonY = Math.max(-Math.sin(angle) * radiusV, MIN_CELESTIAL_HEIGHT);
     moon.position.set(moonX, moonY, depth);
     moon.target.position.set(0, 0, 0);
     if (!moon.target.parent) scene.add(moon.target);
@@ -637,15 +672,11 @@
     var daylight = Math.max(0, Math.sin(angle));
     var twilight = Math.max(0, 1 - Math.abs(Math.sin(angle)));
 
-    // Keep the sun strongly visible as the source of illumination.
     sun.intensity = params.sunIntensity * (0.04 + 1.15 * daylight);
-
-    // Moon brightens as the sun's contribution fades.
     moon.intensity = 0.05 + 0.4 * Math.max(0, -Math.sin(angle));
     ambient.intensity = 0.24 + 0.72 * daylight;
     warm.intensity = 0.08 + 0.55 * twilight;
 
-    // Warm at sunrise/sunset, pale yellow at daytime.
     var sunColor = new THREE.Color();
     if (daylight < 0.28) {
       sunColor.setHSL(0.075, 0.78, 0.68);
@@ -654,7 +685,6 @@
     }
     sun.color.copy(sunColor);
 
-    // Visible sun and moon meshes follow their light positions outward.
     sunMesh.position.copy(sun.position).multiplyScalar(2.35);
     sunMesh.lookAt(camera.position);
 
@@ -663,24 +693,18 @@
 
     starMat.opacity = THREE.MathUtils.clamp(1 - daylight * 1.4, 0, 0.85);
 
-    // Labels.
     document.getElementById('sunTimeVal').textContent = formatTime(time);
     document.getElementById('sunHeightVal').textContent = params.sunHeight.toFixed(2);
     document.getElementById('sunIntensityVal').textContent = params.sunIntensity.toFixed(2);
     document.getElementById('cycleSpeedVal').textContent = params.cycleSpeed.toFixed(3);
   }
 
-  // Sun direction used for the wave glow.
   var sunDir = new THREE.Vector3();
   updateWind();
   updateSun();
 
   var oceanHalf = SIZE / 2;
   function shoreFalloff(x, z){
-    // 1.0 through the middle of the ocean, fading smoothly to 0 as the
-    // plane approaches its outer edge, so the surface settles flat and
-    // flush with the fixed-height shore around it instead of poking
-    // through or leaving a gap.
     var d = Math.max(Math.abs(x), Math.abs(z)) / oceanHalf;
     var t = THREE.MathUtils.clamp((d - 0.72) / 0.28, 0, 1);
     return 1 - t * t * (3 - 2 * t);
@@ -704,11 +728,8 @@
   var minH = -6, maxH = 6;
 
   function updateOcean(t){
-    // The glow is calculated from the SUN'S ACTUAL POSITION.
-    // Camera position has no influence on it.
     sunDir.copy(sun.position).normalize();
 
-    // Small offsets used to estimate the local polygon surface slope.
     var eps = 1.2;
     var lightColor = new THREE.Color(0xfff0b0);
     var glowColor = new THREE.Color(0xb8fff0);
@@ -722,11 +743,9 @@
       var y = waveHeight(x, z, t);
       pos.array[ix+1] = y;
 
-      // Base low-poly ocean colour.
       var f = THREE.MathUtils.clamp((y - minH)/(maxH-minH), 0, 1);
       tmpColor.copy(colorA).lerp(colorB, f);
 
-      // Calculate the actual local wave normal from the wave surface.
       var hx = waveHeight(x + eps, z, t) - waveHeight(x - eps, z, t);
       var hz = waveHeight(x, z + eps, t) - waveHeight(x, z - eps, t);
 
@@ -739,28 +758,17 @@
       ny /= len;
       nz /= len;
 
-      // How directly this polygon faces the sun.
-      // 0 = facing away, 1 = facing directly toward the sun.
       var sunDot = Math.max(0, nx*sunDir.x + ny*sunDir.y + nz*sunDir.z);
-
-      // Sharpen the highlight so it creates a visible sun-reflection band.
       var directionalGlow = Math.pow(sunDot, 5.0);
-
-      // Higher wave faces catch a little more of the sunlight.
       var crestBoost = 0.35 + 0.65 * f;
-
-      // Strongly directional sunlight. No camera-distance term.
       var glowAmount = directionalGlow * crestBoost * params.sunIntensity;
 
-      // Add warm sunlight first.
       var warmAmount = Math.min(1, glowAmount * 0.75);
       tmpColor.lerp(lightColor, warmAmount * 0.42);
 
-      // Add the brighter water glow on faces aimed at the sun.
       var aquaAmount = Math.min(1, glowAmount * 0.95);
       tmpColor.lerp(glowColor, aquaAmount * 0.62);
 
-      // Whitecap foam on the highest crests.
       if (f > 0.8) {
         tmpColor.lerp(foamColor, Math.min(1, (f - 0.8) / 0.2) * 0.85);
       }
@@ -774,9 +782,6 @@
     col.needsUpdate = true;
     geo.computeVertexNormals();
 
-    // A small global emission keeps distant ocean polygons from becoming
-    // dark due to ordinary scene lighting. The directional highlight above
-    // is what determines WHERE the glow appears.
     var daylight = Math.max(0, sunDir.y);
     mat.emissiveIntensity = 0.16 + 0.34 * daylight * params.sunIntensity;
   }
@@ -809,24 +814,49 @@
   var flying = false;
   var verticalVelocity = 0, grounded = true;
   var JUMP_SPEED = 19, GRAVITY = 30; // clears the ~4-unit sand-to-grass step with some margin
-  var STEP_EPS = 0.5;
   var onBoat = false, MOUNT_RANGE = 16;
   var thirdPerson = false;
+  var isDead = false, gameStarted = false;
+  var SPAWN = {x: 0, z: 315};
+
   // The player's real simulated position while walking. In first person
   // the camera sits exactly here; in third person the camera pulls back
   // and this is where the bean stands instead.
   var playerX = camera.position.x, playerY = camera.position.y, playerZ = camera.position.z;
+
+  function killPlayer(){
+    isDead = true;
+    document.getElementById('deathScreen').style.display = 'flex';
+  }
+  function respawnPlayer(){
+    playerX = SPAWN.x; playerZ = SPAWN.z;
+    playerY = groundHeightAt(SPAWN.x, SPAWN.z);
+    grounded = true; verticalVelocity = 0;
+    flying = false; onBoat = false;
+    isDead = false;
+    document.getElementById('deathScreen').style.display = 'none';
+  }
+  document.getElementById('respawnBtn').addEventListener('click', respawnPlayer);
+  document.getElementById('playBtn').addEventListener('click', function(){
+    gameStarted = true;
+    document.getElementById('titleScreen').style.display = 'none';
+  });
+
   window.addEventListener('keydown', function(e){
     keys[e.code] = true;
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) !== -1) e.preventDefault();
     autoDrift = false;
+    if (!gameStarted || isDead) return;
     if (e.code === 'KeyF' && !e.repeat){
       flying = !flying;
-      if (flying){
-        thirdPerson = false;
-      } else {
+      if (!flying){
+        // Switching off flight starts a normal fall from wherever you
+        // are, instead of teleporting straight down to the ground.
+        playerX = camera.position.x;
+        playerZ = camera.position.z;
+        playerY = camera.position.y - EYE_HEIGHT;
+        grounded = false;
         verticalVelocity = 0;
-        grounded = true;
       }
     }
     if (e.code === 'Space' && !e.repeat && !flying && grounded){
@@ -841,13 +871,11 @@
         var bdx = playerX - boatX, bdz = playerZ - boatZ;
         if (Math.sqrt(bdx*bdx + bdz*bdz) < MOUNT_RANGE) onBoat = true;
       } else {
-        // Only step off where the boat is actually near solid ground.
         var edx = boatX - ISLAND_CENTER.x, edz = boatZ - ISLAND_CENTER.z;
         var nearIsland = Math.sqrt(edx*edx + edz*edz) < ISLAND_LAND_RADIUS + MOUNT_RANGE;
         var nearShore = Math.max(Math.abs(boatX), Math.abs(boatZ)) > WATER_EDGE - MOUNT_RANGE;
         if (nearIsland || nearShore){
           onBoat = false;
-          // Resume walking from wherever the boat currently is.
           playerX = boatX; playerZ = boatZ;
           playerY = groundHeightAt(boatX, boatZ);
           grounded = true; verticalVelocity = 0;
@@ -857,6 +885,39 @@
   }, {passive:false});
   window.addEventListener('keyup', function(e){ keys[e.code] = false; });
 
+  // Real altitude difference between sand and grass — tall enough that
+  // you have to jump to get up from the beach onto the grass. Beyond the
+  // grass, mountains add a climbable slope on top.
+  var EYE_HEIGHT = 5;
+  var SAND_LEVEL = 1.8;
+  var GRASS_LEVEL = 6.5;
+  var ISLAND_LEVEL = 7;
+  var SAND_GRASS_BOUNDARY = 344;
+  var NO_GROUND = -9999;
+  function groundHeightAt(x, z){
+    var idx = x - ISLAND_CENTER.x, idz = z - ISLAND_CENTER.z;
+    if (Math.sqrt(idx*idx + idz*idz) < ISLAND_LAND_RADIUS) return ISLAND_LEVEL;
+    var m = Math.max(Math.abs(x), Math.abs(z));
+    if (m >= FALL_EDGE) return NO_GROUND;
+    if (m < SAND_GRASS_BOUNDARY) return SAND_LEVEL;
+    var bump = 0;
+    for (var i = 0; i < mountainData.length; i++){
+      var md = mountainData[i];
+      var dx = x - md.x, dz = z - md.z;
+      var dist = Math.sqrt(dx*dx + dz*dz);
+      if (dist < md.r){
+        var h = md.h * (1 - dist / md.r);
+        if (h > bump) bump = h;
+      }
+    }
+    return GRASS_LEVEL + bump;
+  }
+  function crossesSandGrassLine(fromX, fromZ, toX, toZ){
+    var fromM = Math.max(Math.abs(fromX), Math.abs(fromZ));
+    var toM = Math.max(Math.abs(toX), Math.abs(toZ));
+    return fromM < SAND_GRASS_BOUNDARY && toM >= SAND_GRASS_BOUNDARY;
+  }
+
   var moveSpeed = 26; // units per second
   var forward = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0,1,0);
   var flatForward = new THREE.Vector3(), flatRight = new THREE.Vector3();
@@ -865,10 +926,9 @@
 
   function animate(){
     requestAnimationFrame(animate);
-    var dt = clock.getDelta();
+    var dt = Math.min(clock.getDelta(), 0.1);
     var t = clock.elapsedTime * params.speed;
 
-    // cycleSpeed is hours of simulated time per second.
     if (params.cycleSpeed > 0) {
       params.sunTime = (params.sunTime + dt * params.cycleSpeed) % 24;
       document.getElementById('sunTime').value = params.sunTime;
@@ -882,36 +942,36 @@
 
     var running = keys['ShiftLeft']||keys['ShiftRight'];
     var dist = moveSpeed * dt * (running ? 4.5 : 1);
+    var inputActive = gameStarted && !isDead;
 
     if (flying){
       landBean.visible = false;
-      if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
-      if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
-      if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
-      if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right, -dist);
-      if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
-      if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
-      camera.position.y = Math.max(camera.position.y, -8);
+      if (inputActive){
+        if (keys['KeyW']||keys['ArrowUp'])    camera.position.addScaledVector(forward, dist);
+        if (keys['KeyS']||keys['ArrowDown'])  camera.position.addScaledVector(forward, -dist);
+        if (keys['KeyD']||keys['ArrowRight']) camera.position.addScaledVector(right, dist);
+        if (keys['KeyA']||keys['ArrowLeft'])  camera.position.addScaledVector(right, -dist);
+        if (keys['KeyE']||keys['Space'])      camera.position.addScaledVector(up, dist);
+        if (keys['KeyQ']||keys['ControlLeft'])camera.position.addScaledVector(up, -dist);
+      }
     } else if (onBoat){
       landBean.visible = false;
-      // Driving the boat: confined to water, blocked by land.
       flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
       var boatDist = moveSpeed * dt * (running ? 2.0 : 1);
       var mx = 0, mz = 0;
-      if (keys['KeyW']||keys['ArrowUp'])    { mx += flatForward.x; mz += flatForward.z; }
-      if (keys['KeyS']||keys['ArrowDown'])  { mx -= flatForward.x; mz -= flatForward.z; }
-      if (keys['KeyD']||keys['ArrowRight']) { mx += flatRight.x;   mz += flatRight.z; }
-      if (keys['KeyA']||keys['ArrowLeft'])  { mx -= flatRight.x;   mz -= flatRight.z; }
+      if (inputActive){
+        if (keys['KeyW']||keys['ArrowUp'])    { mx += flatForward.x; mz += flatForward.z; }
+        if (keys['KeyS']||keys['ArrowDown'])  { mx -= flatForward.x; mz -= flatForward.z; }
+        if (keys['KeyD']||keys['ArrowRight']) { mx += flatRight.x;   mz += flatRight.z; }
+        if (keys['KeyA']||keys['ArrowLeft'])  { mx -= flatRight.x;   mz -= flatRight.z; }
+      }
       var tryX = boatX + mx * boatDist;
       var tryZ = boatZ + mz * boatDist;
       if (isWater(tryX, boatZ)) boatX = tryX;
       if (isWater(boatX, tryZ)) boatZ = tryZ;
       boat.rotation.y = yaw;
 
-      // Free-orbiting third-person camera: drag still uses yaw/pitch,
-      // but now it orbits the boat in full 3D instead of only turning
-      // horizontally. Clamped so it can never dip below the water.
       var camDist = 26;
       camera.position.set(
         boatX - forward.x * camDist,
@@ -922,67 +982,48 @@
       if (camera.position.y < waterFloor) camera.position.y = waterFloor;
       camera.lookAt(boatX, boat.position.y + 2, boatZ);
     } else {
-      // First-person walking: movement is flattened to the horizontal
-      // plane (no vertical component from look pitch), and eye height
-      // stays fixed rather than following the look direction. Blocked
-      // by open water — land only.
       flatForward.set(Math.sin(yaw), 0, Math.cos(yaw));
       flatRight.set(Math.sin(yaw - Math.PI/2), 0, Math.cos(yaw - Math.PI/2));
       var walkDist = moveSpeed * dt * (running ? 2.2 : 1);
       var wx = 0, wz = 0;
-      if (keys['KeyW']||keys['ArrowUp'])    { wx += flatForward.x; wz += flatForward.z; }
-      if (keys['KeyS']||keys['ArrowDown'])  { wx -= flatForward.x; wz -= flatForward.z; }
-      if (keys['KeyD']||keys['ArrowRight']) { wx += flatRight.x;   wz += flatRight.z; }
-      if (keys['KeyA']||keys['ArrowLeft'])  { wx -= flatRight.x;   wz -= flatRight.z; }
-      var curGroundHere = groundHeightAt(playerX, playerZ);
+      if (inputActive){
+        if (keys['KeyW']||keys['ArrowUp'])    { wx += flatForward.x; wz += flatForward.z; }
+        if (keys['KeyS']||keys['ArrowDown'])  { wx -= flatForward.x; wz -= flatForward.z; }
+        if (keys['KeyD']||keys['ArrowRight']) { wx += flatRight.x;   wz += flatRight.z; }
+        if (keys['KeyA']||keys['ArrowLeft'])  { wx -= flatRight.x;   wz -= flatRight.z; }
+      }
+
       var wTryX = playerX + wx * walkDist;
-      if (!blockedForWalking(wTryX, playerZ)){
-        var gAtX = groundHeightAt(wTryX, playerZ);
-        // In the air, do not let the player pass through the vertical face
-        // of a higher grass/land tier. They can enter it once their feet
-        // have reached that tier's height.
-        var higherTierX = gAtX > curGroundHere + STEP_EPS;
-        if ((!grounded && (!higherTierX || playerY >= gAtX)) ||
-            (grounded && gAtX <= curGroundHere + STEP_EPS)){
-          playerX = wTryX;
-        }
+      if (!blockedForWalking(wTryX, playerZ) &&
+          (!grounded || !crossesSandGrassLine(playerX, playerZ, wTryX, playerZ))){
+        playerX = wTryX;
       }
       var wTryZ = playerZ + wz * walkDist;
-      if (!blockedForWalking(playerX, wTryZ)){
-        var gAtZ = groundHeightAt(playerX, wTryZ);
-        var currentGroundAfterX = groundHeightAt(playerX, playerZ);
-        var higherTierZ = gAtZ > currentGroundAfterX + STEP_EPS;
-        if ((!grounded && (!higherTierZ || playerY >= gAtZ)) ||
-            (grounded && gAtZ <= currentGroundAfterX + STEP_EPS)){
-          playerZ = wTryZ;
-        }
+      if (!blockedForWalking(playerX, wTryZ) &&
+          (!grounded || !crossesSandGrassLine(playerX, playerZ, playerX, wTryZ))){
+        playerZ = wTryZ;
       }
 
       var groundNow = groundHeightAt(playerX, playerZ);
-      if (!grounded){
+      var overVoid = groundNow <= NO_GROUND + 1;
+      if (!grounded || overVoid){
         verticalVelocity -= GRAVITY * dt;
-        var nextPlayerY = playerY + verticalVelocity * dt;
-
-        // The player's feet cannot pass through a land tier from either
-        // direction. While rising, this catches the underside/edge of a
-        // higher tier; while falling, it catches the top surface.
-        if (nextPlayerY <= groundNow){
+        playerY += verticalVelocity * dt;
+        if (!overVoid && playerY <= groundNow){
           playerY = groundNow;
           verticalVelocity = 0;
           grounded = true;
         } else {
-          playerY = nextPlayerY;
-        }
-      } else {
-        // Walking from higher ground onto lower ground should turn into
-        // a fall instead of instantly teleporting the player downward.
-        if (groundNow < playerY - 0.01){
           grounded = false;
-          verticalVelocity = -2;
-        } else {
-          playerY = groundNow;
         }
+      } else if (groundNow < playerY - 0.01){
+        grounded = false;
+        verticalVelocity = 0;
+      } else {
+        playerY = groundNow;
       }
+
+      if (playerY < -60 && !isDead) killPlayer();
 
       landBean.visible = thirdPerson;
       landBean.position.set(playerX, playerY, playerZ);
